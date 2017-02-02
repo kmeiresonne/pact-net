@@ -25,8 +25,8 @@ namespace PactNet.Mocks.MockHttpService.Models
         [JsonConverter(typeof(PreserveCasingDictionaryConverter))]
         public IDictionary<string, string> Headers { get; set; }
 
-        [JsonIgnore]
         [JsonProperty(PropertyName = "matchingRules")]
+        //[JsonConverter(typeof(MatcherConverter))]
         internal IDictionary<string, IMatcher> MatchingRules { get; private set; }
 
         [JsonProperty(PropertyName = "body", NullValueHandling = NullValueHandling.Include)]
@@ -48,10 +48,11 @@ namespace PactNet.Mocks.MockHttpService.Models
 
         private dynamic ParseBodyMatchingRules(dynamic body)
         {
-            MatchingRules = new Dictionary<string, IMatcher>
-            {
-                { DefaultHttpBodyMatcher.Path, new DefaultHttpBodyMatcher(true) }
-            };
+            if (MatchingRules == null)
+                MatchingRules = new Dictionary<string, IMatcher>
+                {
+                    {DefaultHttpBodyMatcher.Path, new DefaultHttpBodyMatcher(true)}
+                };
 
             if (body == null)
             {
@@ -101,6 +102,43 @@ namespace PactNet.Mocks.MockHttpService.Models
             return bodyToken is JArray
                 ? JsonConvert.DeserializeObject<IEnumerable<ExpandoObject>>(bodyToken.ToString(), new ExpandoObjectConverter())
                 : JsonConvert.DeserializeObject<ExpandoObject>(bodyToken.ToString(), new ExpandoObjectConverter());
+        }
+    }
+
+    public class MatcherConverter : JsonConverter
+    {
+        public override bool CanWrite => false;
+        public override bool CanRead => true;
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(IMatcher);
+        }
+        public override void WriteJson(JsonWriter writer,
+            object value, JsonSerializer serializer)
+        {
+            throw new InvalidOperationException("Use default serialization.");
+        }
+
+        public override object ReadJson(JsonReader reader,
+            Type objectType, object existingValue,
+            JsonSerializer serializer)
+        {
+            var jsonObject = JObject.Load(reader);
+            var matcher = default(IMatcher);
+            switch (jsonObject["match"].Value<string>())
+            {
+                case "regex":
+                    matcher = new RegexMatcher(jsonObject["regex"].Value<string>());
+                    break;
+                case "type":
+                    matcher = new TypeMatcher();
+                    break;
+                case "default":
+                    matcher = new DefaultHttpBodyMatcher(false);
+                    break;
+            }
+            serializer.Populate(jsonObject.CreateReader(), matcher);
+            return matcher;
         }
     }
 }
